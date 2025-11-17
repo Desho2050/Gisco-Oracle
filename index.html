@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -238,6 +237,7 @@
     const DATA_VERSION = '1';
     const CACHE_KEY = excelPath + '|v' + DATA_VERSION;
     let ALL_ROWS = []; // Store all 58k rows for filtering
+    let SEARCH_INDEX = []; // Precomputed search index for fast filtering
 
     // Worker-based parsing for responsiveness
     let ORACLE_WORKER = null;
@@ -267,75 +267,6 @@
           reject(e);
         }
       });
-    }
-
-    // Worker-based filtering for 58k rows
-    let FILTER_WORKER = null;
-    function getFilterWorker(){
-      if (!FILTER_WORKER) FILTER_WORKER = new Worker('oracle-filter-worker.js');
-      return FILTER_WORKER;
-    }
-    function filterWithWorker(queries, rows){
-      return new Promise((resolve, reject) => {
-        try {
-          const w = getFilterWorker();
-          const onMsg = (e) => {
-            w.removeEventListener('message', onMsg);
-            const { ok, matchingIndices, error } = e.data || {};
-            if (ok) resolve(matchingIndices || []);
-            else reject(new Error(error || 'Worker filtering failed'));
-          };
-          const onErr = (err) => {
-            w.removeEventListener('error', onErr);
-            reject(err);
-          };
-          w.addEventListener('message', onMsg);
-          w.addEventListener('error', onErr);
-          w.postMessage({ queries, rows });
-        } catch (e){
-          reject(e);
-        }
-      });
-    }
-
-    // Simple IndexedDB cache helpers
-    function idbOpen(){
-      return new Promise((resolve, reject) => {
-        if (!('indexedDB' in window)) { resolve(null); return; }
-        const req = indexedDB.open('excelCache', 1);
-        req.onupgradeneeded = () => {
-          const db = req.result;
-          if (!db.objectStoreNames.contains('files')) db.createObjectStore('files');
-        };
-        req.onsuccess = () => resolve(req.result);
-        req.onerror = () => reject(req.error);
-      });
-    }
-    async function idbGet(key){
-      try {
-        const db = await idbOpen();
-        if (!db) return null;
-        return await new Promise((resolve, reject) => {
-          const tx = db.transaction('files','readonly');
-          const store = tx.objectStore('files');
-          const r = store.get(key);
-          r.onsuccess = () => resolve(r.result || null);
-          r.onerror = () => reject(r.error);
-        });
-      } catch { return null; }
-    }
-    async function idbSet(key, value){
-      try {
-        const db = await idbOpen();
-        if (!db) return false;
-        return await new Promise((resolve, reject) => {
-          const tx = db.transaction('files','readwrite');
-          const store = tx.objectStore('files');
-          const r = store.put(value, key);
-          r.onsuccess = () => resolve(true);
-          r.onerror = () => reject(r.error);
-        });
-      } catch { return false; }
     }
 
     // Flexible field mapping: best-effort matching on common header names
@@ -407,13 +338,27 @@
     function escapeHtml(s){
       return String(s)
         .replaceAll('&','&amp;')
-        .replaceAll('<','&lt;')
-        .replaceAll('>','&gt;')
+        .replaceAll('<','<')
+        .replaceAll('>','>')
         .replaceAll('"','&quot;')
         .replaceAll("'",'&#39;');
     }
 
-    async function filterNow(){
+    // Debounce function to limit filter calls
+    function debounce(func, wait) {
+      let timeout;
+      return function executedFunction(...args) {
+        const later = () => {
+          clearTimeout(timeout);
+          func(...args);
+        };
+        clearTimeout(timeout);
+        timeout = setTimeout(later, wait);
+      };
+    }
+
+    // Fast search implementation
+    function filterNow(){
       const q1 = document.getElementById('q1').value.trim().toLowerCase();
       const q2 = document.getElementById('q2').value.trim().toLowerCase();
       const q3 = document.getElementById('q3').value.trim().toLowerCase();
@@ -431,36 +376,45 @@
         return;
       }
 
-      try {
-        // Use worker to filter 58k rows without blocking UI
-        const matchingIndices = await filterWithWorker(queries, ALL_ROWS);
-        const tbody = document.getElementById('tableBody');
-        let visible = 0;
-        
-        // Build a Set of matching indices for O(1) lookup
-        const matchSet = new Set(matchingIndices);
-        
-        for (const tr of Array.from(tbody.children)){
-          const dataIndex = parseInt(tr.dataset.rowIndex || -1, 10);
-          const shouldShow = matchSet.has(dataIndex);
-          tr.style.display = shouldShow ? '' : 'none';
-          if (shouldShow) visible++;
-        }
-        updateCounter(visible);
-      } catch (err){
-        console.error('Filter worker error:', err);
-        // Fallback to main thread filtering if worker fails
-        const tbody = document.getElementById('tableBody');
-        let visible = 0;
-        for (const tr of Array.from(tbody.children)){
-          const idx = tr.dataset.index || '';
-          const ok = queries.every(q => q.split(/\s+/).every(tok => idx.includes(tok)));
-          tr.style.display = ok ? '' : 'none';
-          if (ok) visible++;
-        }
-        updateCounter(visible);
+      // Precompute search index if not available
+      if (!SEARCH_INDEX.length) {
+        SEARCH_INDEX = ALL_ROWS.map(row => row.searchIndex);
       }
+
+      // Use efficient filtering
+      const matches = [];
+      for (let i = 0; i < SEARCH_INDEX.length; i++) {
+        const index = SEARCH_INDEX[i];
+        let match = true;
+        
+        for (const query of queries) {
+          if (!index.includes(query)) {
+            match = false;
+            break;
+          }
+        }
+        
+        if (match) {
+          matches.push(i);
+        }
+      }
+
+      // Update table visibility
+      const tbody = document.getElementById('tableBody');
+      const rows = Array.from(tbody.children);
+      let visible = 0;
+      
+      for (let i = 0; i < rows.length; i++) {
+        const shouldShow = matches.includes(i);
+        rows[i].style.display = shouldShow ? '' : 'none';
+        if (shouldShow) visible++;
+      }
+      
+      updateCounter(visible);
     }
+
+    // Debounced filter function
+    const debouncedFilter = debounce(filterNow, 150);
 
     function setStatus(msg, isError=false){
       const el = document.getElementById('statusBar');
@@ -521,6 +475,7 @@
         const cached = await idbGet(CACHE_KEY);
         const cachedCount = cached && Array.isArray(cached.rows) ? cached.rows.length : -1;
         ALL_ROWS = rows;
+        SEARCH_INDEX = []; // Reset search index when data changes
         await idbSet(CACHE_KEY, { rows, ts: Date.now() });
         if (rows.length !== cachedCount){
           renderTable(rows);
@@ -548,6 +503,7 @@
         const json = await parseInWorker(buf);
         const rows = json.map(buildRow);
         ALL_ROWS = rows;
+        SEARCH_INDEX = []; // Reset search index when data changes
         renderTable(rows);
         setStatus(`Loaded ${rows.length} rows from local file`);
         if (rows.length === 0) setStatus('No rows found. Check sheet headers.', true);
@@ -561,9 +517,7 @@
 
     // Wire events
     for (const id of ['q1','q2','q3','q4']){
-      document.addEventListener('input', (e) => {
-        if (e.target && e.target.id === id) filterNow();
-      });
+      document.getElementById(id).addEventListener('input', debouncedFilter);
     }
     document.getElementById('btnPreview').addEventListener('click', filterNow);
     document.getElementById('btnPrint').addEventListener('click', () => window.print());
