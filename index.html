@@ -214,6 +214,18 @@
   // Load Excel directly using SheetJS (no worker needed)
   async function loadExcel(){
     try {
+       showLoader(true);
+    setStatus('Checking cache…');
+
+    // ... existing code ...
+
+  } catch (err) {
+    console.error('Excel load failed:', err); // <-- This line shows the real error
+    setStatus(`Failed to load Excel: ${err.message}`, true);
+    const btn = document.getElementById('btnLocal');
+    if (btn) btn.style.display = 'inline-flex';
+    updateCounter(0);
+    showLoader(false);
       showLoader(true);
       setStatus('Checking cache…');
 
