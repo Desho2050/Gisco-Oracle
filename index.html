@@ -314,20 +314,17 @@
         .replaceAll("'",'&#39;');
     }
 
-    // Debounced search
-    function debounce(func, wait) {
-      let timeout;
-      return function executedFunction(...args) {
-        const later = () => {
-          clearTimeout(timeout);
-          func(...args);
-        };
-        clearTimeout(timeout);
-        timeout = setTimeout(later, 150);
-      };
+    // Optimized search index using Set for faster lookups
+    function buildSearchIndex(rows) {
+      const index = new Array(rows.length);
+      for (let i = 0; i < rows.length; i++) {
+        const terms = rows[i].searchIndex.split(' | ');
+        index[i] = new Set(terms);
+      }
+      return index;
     }
 
-    // Fast filtering
+    // Optimized filtering using Sets
     function filterNow(){
       const q1 = document.getElementById('q1').value.trim().toLowerCase();
       const q2 = document.getElementById('q2').value.trim().toLowerCase();
@@ -343,16 +340,18 @@
         return;
       }
 
+      // Build search index if not available
       if (!SEARCH_INDEX.length && ALL_ROWS.length > 0) {
-        SEARCH_INDEX = ALL_ROWS.map(row => row.searchIndex);
+        SEARCH_INDEX = buildSearchIndex(ALL_ROWS);
       }
 
+      // Optimized matching using Sets
       const matches = [];
       for (let i = 0; i < SEARCH_INDEX.length; i++) {
-        const idx = SEARCH_INDEX[i];
+        const rowTerms = SEARCH_INDEX[i];
         let match = true;
         for (const q of queries) {
-          if (!idx.includes(q)) {
+          if (![...rowTerms].some(term => term.includes(q))) {
             match = false;
             break;
           }
@@ -370,7 +369,20 @@
       updateCounter(visible);
     }
 
-    const debouncedFilter = debounce(filterNow, 150);
+    // Debounced search with reduced delay
+    function debounce(func, wait) {
+      let timeout;
+      return function executedFunction(...args) {
+        const later = () => {
+          clearTimeout(timeout);
+          func(...args);
+        };
+        clearTimeout(timeout);
+        timeout = setTimeout(later, 50); // Reduced from 150ms to 50ms
+      };
+    }
+
+    const debouncedFilter = debounce(filterNow, 50);
 
     // IndexedDB cache
     function idbOpen(){
@@ -423,7 +435,7 @@
         const cached = await idbGet(CACHE_KEY);
         if (cached && Array.isArray(cached.rows) && cached.rows.length > 0){
           ALL_ROWS = cached.rows;
-          SEARCH_INDEX = cached.rows.map(r => r.searchIndex);
+          SEARCH_INDEX = buildSearchIndex(ALL_ROWS);
           renderTable(ALL_ROWS);
           setStatus(`Loaded ${ALL_ROWS.length} rows from cache`);
           showLoader(false);
@@ -476,7 +488,7 @@
         }
 
         ALL_ROWS = rows;
-        SEARCH_INDEX = rows.map(r => r.searchIndex);
+        SEARCH_INDEX = buildSearchIndex(rows);
         renderTable(rows);
         setStatus(`Loaded ${rows.length} rows from Oracle.xlsx`);
         
@@ -525,7 +537,7 @@
 
         if (rows.length !== ALL_ROWS.length) {
           ALL_ROWS = rows;
-          SEARCH_INDEX = rows.map(r => r.searchIndex);
+          SEARCH_INDEX = buildSearchIndex(rows);
           renderTable(rows);
           setStatus(`Updated to ${rows.length} rows`);
         }
@@ -583,7 +595,7 @@
         if (rows.length === 0) throw new Error('No valid rows parsed.');
 
         ALL_ROWS = rows;
-        SEARCH_INDEX = rows.map(r => r.searchIndex);
+        SEARCH_INDEX = buildSearchIndex(rows);
         renderTable(rows);
         setStatus(`Loaded ${rows.length} rows from local file`);
         idbSet(CACHE_KEY, { rows, ts: Date.now() }).catch(console.error);
