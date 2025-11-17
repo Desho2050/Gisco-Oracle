@@ -44,7 +44,7 @@
     .brand-mark {
       width: 36px; height: 36px; border-radius: 6px;
       background: linear-gradient(135deg, var(--accent), #f56c6f);
-      box-shadow: 0 1px 2px rgba(0,0,0,0.15);
+      box-shadow: 0 1px 2px rgba(0,0,0,0.0.15);
     }
     .brand-text {
       display: grid;
@@ -234,10 +234,11 @@
       document.querySelectorAll('[data-lang]').forEach(btn => btn.addEventListener('click', () => setLang(btn.dataset.lang)));
     });
 
-    const csvPath = 'Oracle.csv'; // Changed from Oracle.xlsx
+    const csvPath = 'Oracle.csv';
     const DATA_VERSION = '1';
     const CACHE_KEY = csvPath + '|v' + DATA_VERSION;
-    let ALL_ROWS = [];
+    let ALL_ROWS = []; // Contains ALL data
+    let DISPLAY_ROWS = []; // Contains only visible data (first 10k)
     let SEARCH_INDEX = [];
 
     // Flexible field mapping
@@ -333,9 +334,8 @@
       const queries = [q1,q2,q3,q4].filter(Boolean);
 
       if (queries.length === 0){
-        const tbody = document.getElementById('tableBody');
-        Array.from(tbody.children).forEach(tr => tr.style.display = '');
-        updateCounter(ALL_ROWS.length);
+        // Show initial display rows when no search
+        renderTable(DISPLAY_ROWS);
         return;
       }
 
@@ -344,7 +344,7 @@
         SEARCH_INDEX = buildSearchIndex(ALL_ROWS);
       }
 
-      // Optimized matching using Sets
+      // Search through ALL rows (not just displayed ones)
       const matches = [];
       for (let i = 0; i < SEARCH_INDEX.length; i++) {
         const rowTerms = SEARCH_INDEX[i];
@@ -355,17 +355,10 @@
             break;
           }
         }
-        if (match) matches.push(i);
+        if (match) matches.push(ALL_ROWS[i]);
       }
 
-      const tbody = document.getElementById('tableBody');
-      const rows = Array.from(tbody.children);
-      let visible = 0;
-      for (let i = 0; i < rows.length; i++) {
-        rows[i].style.display = matches.includes(i) ? '' : 'none';
-        if (matches.includes(i)) visible++;
-      }
-      updateCounter(visible);
+      renderTable(matches);
     }
 
     // Debounced search with reduced delay
@@ -377,7 +370,7 @@
           func(...args);
         };
         clearTimeout(timeout);
-        timeout = setTimeout(later, 50); // Reduced from 150ms to 50ms
+        timeout = setTimeout(later, 50);
       };
     }
 
@@ -479,9 +472,10 @@
         const cached = await idbGet(CACHE_KEY);
         if (cached && Array.isArray(cached.rows) && cached.rows.length > 0){
           ALL_ROWS = cached.rows;
+          DISPLAY_ROWS = ALL_ROWS.slice(0, 10000); // Show first 10k initially
           SEARCH_INDEX = buildSearchIndex(ALL_ROWS);
-          renderTable(ALL_ROWS);
-          setStatus(`Loaded ${ALL_ROWS.length} rows from cache`);
+          renderTable(DISPLAY_ROWS);
+          setStatus(`Loaded ${ALL_ROWS.length} rows from cache (showing first 10,000)`);
           showLoader(false);
           setTimeout(() => revalidateCSV().catch(console.error), 2000);
           return;
@@ -502,9 +496,10 @@
         }
 
         ALL_ROWS = rows;
-        SEARCH_INDEX = buildSearchIndex(rows);
-        renderTable(rows);
-        setStatus(`Loaded ${rows.length} rows from Oracle.csv`);
+        DISPLAY_ROWS = ALL_ROWS.slice(0, 10000); // Show first 10k initially
+        SEARCH_INDEX = buildSearchIndex(ALL_ROWS);
+        renderTable(DISPLAY_ROWS);
+        setStatus(`Loaded ${rows.length} rows from Oracle.csv (showing first 10,000)`);
         
         // Cache it
         idbSet(CACHE_KEY, { rows, ts: Date.now() }).catch(console.error);
@@ -530,9 +525,10 @@
 
         if (rows.length !== ALL_ROWS.length) {
           ALL_ROWS = rows;
+          DISPLAY_ROWS = ALL_ROWS.slice(0, 10000); // Update display rows
           SEARCH_INDEX = buildSearchIndex(rows);
-          renderTable(rows);
-          setStatus(`Updated to ${rows.length} rows`);
+          renderTable(DISPLAY_ROWS);
+          setStatus(`Updated to ${rows.length} rows (showing first 10,000)`);
         }
 
         idbSet(CACHE_KEY, { rows, ts: Date.now() }).catch(console.error);
@@ -567,9 +563,10 @@
         if (rows.length === 0) throw new Error('No valid rows parsed.');
 
         ALL_ROWS = rows;
+        DISPLAY_ROWS = ALL_ROWS.slice(0, 10000); // Show first 10k initially
         SEARCH_INDEX = buildSearchIndex(rows);
-        renderTable(rows);
-        setStatus(`Loaded ${rows.length} rows from local file`);
+        renderTable(DISPLAY_ROWS);
+        setStatus(`Loaded ${rows.length} rows from local file (showing first 10,000)`);
         idbSet(CACHE_KEY, { rows, ts: Date.now() }).catch(console.error);
 
       } catch (err) {
