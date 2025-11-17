@@ -123,6 +123,24 @@
     table { min-width: 720px; }
 
     .footer { color: var(--muted); font-size: 12px; padding: 10px 20px; }
+
+    /* Stock Box Styling */
+    .stock-box {
+      display: inline-flex;
+      align-items: center;
+      padding: 8px 12px;
+      background: #e6f7ee; /* Light green background */
+      border-radius: 8px;
+      border: 1px solid #c5e1c5; /* Light green border */
+      gap: 4px;
+    }
+    .stock-box .field {
+      margin: 0; /* Remove any default margin */
+    }
+    .stock-box span {
+      font-size: 13px;
+      color: #2e7d32; /* Dark green text for contrast */
+    }
   </style>
 </head>
 <body>
@@ -168,10 +186,12 @@
     </div>
     <div class="actions">
       <div class="left-actions">
-        <label class="field">
-          <input type="checkbox" id="stockOnly" style="width: auto; margin-right: 5px;">
-          <span>Stock Items Only</span>
-        </label>
+        <div class="stock-box">
+          <label class="field">
+            <input type="checkbox" id="stockOnly" style="width: auto; margin-right: 5px;">
+            <span>Stock Items Only</span>
+          </label>
+        </div>
         <button id="btnPreview" class="btn primary" title="Preview results"><span>🔎</span>Preview</button>
         <button id="btnPrint" class="btn" title="Print current results"><span>🖨️</span>Print</button>
         <input type="file" id="localFile" accept=".csv" style="display:none" />
