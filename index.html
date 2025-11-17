@@ -44,7 +44,7 @@
     .brand-mark {
       width: 36px; height: 36px; border-radius: 6px;
       background: linear-gradient(135deg, var(--accent), #f56c6f);
-      box-shadow: 0 1px 2px rgba(0,0,0,0.0.15);
+      box-shadow: 0 1px 2px rgba(0,0,0,0.15);
     }
     .brand-text {
       display: grid;
@@ -168,6 +168,10 @@
     </div>
     <div class="actions">
       <div class="left-actions">
+        <label class="field">
+          <input type="checkbox" id="stockOnly" style="width: auto; margin-right: 5px;">
+          <span>Stock Items Only</span>
+        </label>
         <button id="btnPreview" class="btn primary" title="Preview results"><span>🔎</span>Preview</button>
         <button id="btnPrint" class="btn" title="Print current results"><span>🖨️</span>Print</button>
         <input type="file" id="localFile" accept=".csv" style="display:none" />
@@ -330,11 +334,12 @@
       const q2 = document.getElementById('q2').value.trim().toLowerCase();
       const q3 = document.getElementById('q3').value.trim().toLowerCase();
       const q4 = document.getElementById('q4').value.trim().toLowerCase();
+      const stockOnly = document.getElementById('stockOnly').checked;
 
       const queries = [q1,q2,q3,q4].filter(Boolean);
 
-      if (queries.length === 0){
-        // Show initial display rows when no search
+      if (queries.length === 0 && !stockOnly){
+        // Show initial display rows when no search and no filter
         renderTable(DISPLAY_ROWS);
         return;
       }
@@ -346,16 +351,28 @@
 
       // Search through ALL rows (not just displayed ones)
       const matches = [];
-      for (let i = 0; i < SEARCH_INDEX.length; i++) {
+      for (let i = 0; i < ALL_ROWS.length; i++) {
+        const row = ALL_ROWS[i];
         const rowTerms = SEARCH_INDEX[i];
-        let match = true;
-        for (const q of queries) {
-          if (![...rowTerms].some(term => term.includes(q))) {
-            match = false;
-            break;
-          }
+        
+        // Apply "Stock Items Only" filter
+        if (stockOnly && !row.type.toLowerCase().includes('stock')) {
+          continue;
         }
-        if (match) matches.push(ALL_ROWS[i]);
+        
+        // Apply text search filters
+        if (queries.length > 0) {
+          let match = true;
+          for (const q of queries) {
+            if (![...rowTerms].some(term => term.includes(q))) {
+              match = false;
+              break;
+            }
+          }
+          if (!match) continue;
+        }
+        
+        matches.push(row);
       }
 
       renderTable(matches);
@@ -597,6 +614,7 @@
         document.getElementById(id).addEventListener('input', debouncedFilter);
       }
 
+      document.getElementById('stockOnly').addEventListener('change', filterNow);
       document.getElementById('btnPreview').addEventListener('click', filterNow);
       document.getElementById('btnPrint').addEventListener('click', () => window.print());
 
