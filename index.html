@@ -7,7 +7,6 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <style>
     :root {
       --brand-bg: #1e4672;
@@ -171,8 +170,8 @@
       <div class="left-actions">
         <button id="btnPreview" class="btn primary" title="Preview results"><span>🔎</span>Preview</button>
         <button id="btnPrint" class="btn" title="Print current results"><span>🖨️</span>Print</button>
-        <input type="file" id="localFile" accept=".xlsx,.xls" style="display:none" />
-        <button id="btnLocal" class="btn success" title="Load local Excel" onclick="document.getElementById('localFile').click()">Load Excel</button>
+        <input type="file" id="localFile" accept=".csv" style="display:none" />
+        <button id="btnLocal" class="btn success" title="Load local CSV" onclick="document.getElementById('localFile').click()">Load CSV</button>
         <input type="text" id="pathSelector" placeholder="Selected file path" readonly style="height:36px;border:1px solid var(--border);border-radius:8px;padding:0 10px;min-width:220px;" />
       </div>
       <div class="counter"><span id="resultCount">0</span> <span data-i18n="results_label">results</span></div>
@@ -235,9 +234,9 @@
       document.querySelectorAll('[data-lang]').forEach(btn => btn.addEventListener('click', () => setLang(btn.dataset.lang)));
     });
 
-    const excelPath = 'Oracle.xlsx';
+    const csvPath = 'Oracle.csv'; // Changed from Oracle.xlsx
     const DATA_VERSION = '1';
-    const CACHE_KEY = excelPath + '|v' + DATA_VERSION;
+    const CACHE_KEY = csvPath + '|v' + DATA_VERSION;
     let ALL_ROWS = [];
     let SEARCH_INDEX = [];
 
@@ -426,8 +425,53 @@
       } catch { return false; }
     }
 
-    // Load Excel directly using SheetJS (no worker needed)
-    async function loadExcel(){
+    // Parse CSV data efficiently
+    function parseCSV(csvText) {
+      const lines = csvText.split(/\r?\n/);
+      if (lines.length < 2) return [];
+      
+      // Extract headers (first line)
+      const headers = lines[0].split(',').map(h => h.trim());
+      
+      // Process data rows
+      const rows = [];
+      for (let i = 1; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (!line) continue; // Skip empty lines
+        
+        // Split line by comma, handling quoted values
+        const values = [];
+        let current = '';
+        let inQuotes = false;
+        for (let j = 0; j < line.length; j++) {
+          const char = line[j];
+          if (char === '"') {
+            inQuotes = !inQuotes;
+          } else if (char === ',' && !inQuotes) {
+            values.push(current.trim());
+            current = '';
+          } else {
+            current += char;
+          }
+        }
+        values.push(current.trim());
+        
+        // Create row object
+        const row = {};
+        for (let j = 0; j < headers.length; j++) {
+          row[headers[j]] = values[j] || '';
+        }
+        
+        if (Object.keys(row).length > 0) {
+          rows.push(buildRow(row));
+        }
+      }
+      
+      return rows;
+    }
+
+    // Load CSV data
+    async function loadCSV(){
       try {
         showLoader(true);
         setStatus('Checking cache…');
@@ -439,66 +483,36 @@
           renderTable(ALL_ROWS);
           setStatus(`Loaded ${ALL_ROWS.length} rows from cache`);
           showLoader(false);
-          setTimeout(() => revalidateExcel().catch(console.error), 2000);
+          setTimeout(() => revalidateCSV().catch(console.error), 2000);
           return;
         }
 
-        // No cache → fetch file
-        setStatus('Fetching Oracle.xlsx…');
-        const res = await fetch(excelPath + '?v=' + DATA_VERSION);
+        // No cache → fetch CSV file
+        setStatus('Fetching Oracle.csv…');
+        const res = await fetch(csvPath + '?v=' + DATA_VERSION);
         if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
 
-        const arrayBuffer = await res.arrayBuffer();
-        setStatus('Parsing Excel data…');
+        const csvText = await res.text();
+        setStatus('Parsing CSV data…');
 
-        // Parse with SheetJS — robust handling
-        const workbook = XLSX.read(arrayBuffer, { type: 'array', cellText: true, cellDates: true });
-
-        // Get first worksheet
-        const sheetName = workbook.SheetNames[0];
-        const worksheet = workbook.Sheets[sheetName];
-
-        // Convert to JSON
-        const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
-
-        if (!jsonData || jsonData.length === 0) {
-          throw new Error('No data found in worksheet.');
-        }
-
-        // Extract headers (first row)
-        const headers = jsonData[0].map(h => String(h || '').trim());
-        const rows = [];
-
-        // Process data rows (skip header)
-        for (let i = 1; i < jsonData.length; i++) {
-          const row = {};
-          const dataRow = jsonData[i];
-          for (let j = 0; j < headers.length && j < dataRow.length; j++) {
-            const key = headers[j];
-            const value = dataRow[j];
-            row[key] = value === undefined ? '' : value;
-          }
-          if (Object.keys(row).length > 0) {
-            rows.push(buildRow(row));
-          }
-        }
-
+        // Parse CSV
+        const rows = parseCSV(csvText);
         if (rows.length === 0) {
-          throw new Error('No valid rows parsed. Check if Excel has headers and data.');
+          throw new Error('No valid rows parsed. Check if CSV has headers and data.');
         }
 
         ALL_ROWS = rows;
         SEARCH_INDEX = buildSearchIndex(rows);
         renderTable(rows);
-        setStatus(`Loaded ${rows.length} rows from Oracle.xlsx`);
+        setStatus(`Loaded ${rows.length} rows from Oracle.csv`);
         
         // Cache it
         idbSet(CACHE_KEY, { rows, ts: Date.now() }).catch(console.error);
         showLoader(false);
 
       } catch (err) {
-        console.error('Excel load failed:', err);
-        setStatus(`Failed to load Excel: ${err.message}`, true);
+        console.error('CSV load failed:', err);
+        setStatus(`Failed to load CSV: ${err.message}`, true);
         const btn = document.getElementById('btnLocal');
         if (btn) btn.style.display = 'inline-flex';
         updateCounter(0);
@@ -506,34 +520,13 @@
       }
     }
 
-    async function revalidateExcel(){
+    async function revalidateCSV(){
       try {
-        const res = await fetch(excelPath + '?v=' + DATA_VERSION);
+        const res = await fetch(csvPath + '?v=' + DATA_VERSION);
         if (!res.ok) return;
 
-        const arrayBuffer = await res.arrayBuffer();
-        const workbook = XLSX.read(arrayBuffer, { type: 'array', cellText: true, cellDates: true });
-        const sheetName = workbook.SheetNames[0];
-        const worksheet = workbook.Sheets[sheetName];
-        const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
-
-        if (!jsonData || jsonData.length === 0) return;
-
-        const headers = jsonData[0].map(h => String(h || '').trim());
-        const rows = [];
-
-        for (let i = 1; i < jsonData.length; i++) {
-          const row = {};
-          const dataRow = jsonData[i];
-          for (let j = 0; j < headers.length && j < dataRow.length; j++) {
-            const key = headers[j];
-            const value = dataRow[j];
-            row[key] = value === undefined ? '' : value;
-          }
-          if (Object.keys(row).length > 0) {
-            rows.push(buildRow(row));
-          }
-        }
+        const csvText = await res.text();
+        const rows = parseCSV(csvText);
 
         if (rows.length !== ALL_ROWS.length) {
           ALL_ROWS = rows;
@@ -556,41 +549,20 @@
       const input = document.getElementById('localFile');
       const fname = file.name.toLowerCase();
 
-      if (fname !== 'oracle.xlsx'){
-        setStatus('Please select the file named "Oracle.xlsx" only.', true);
+      if (fname !== 'oracle.csv'){
+        setStatus('Please select the file named "Oracle.csv" only.', true);
         if (ps) { ps.value = ''; ps.style.display = 'none'; }
         if (input) input.value = '';
         return;
       }
 
       if (ps) { ps.style.display = 'inline-flex'; ps.value = file.name; }
-      setStatus('Loading local Excel…');
+      setStatus('Loading local CSV…');
       showLoader(true);
 
       try {
-        const arrayBuffer = await file.arrayBuffer();
-        const workbook = XLSX.read(arrayBuffer, { type: 'array', cellText: true, cellDates: true });
-        const sheetName = workbook.SheetNames[0];
-        const worksheet = workbook.Sheets[sheetName];
-        const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
-
-        if (!jsonData || jsonData.length === 0) throw new Error('No data found.');
-
-        const headers = jsonData[0].map(h => String(h || '').trim());
-        const rows = [];
-
-        for (let i = 1; i < jsonData.length; i++) {
-          const row = {};
-          const dataRow = jsonData[i];
-          for (let j = 0; j < headers.length && j < dataRow.length; j++) {
-            const key = headers[j];
-            const value = dataRow[j];
-            row[key] = value === undefined ? '' : value;
-          }
-          if (Object.keys(row).length > 0) {
-            rows.push(buildRow(row));
-          }
-        }
+        const csvText = await file.text();
+        const rows = parseCSV(csvText);
 
         if (rows.length === 0) throw new Error('No valid rows parsed.');
 
@@ -637,11 +609,11 @@
         const ps = document.getElementById('pathSelector');
         if (btn) btn.style.display = 'inline-flex';
         if (ps) ps.style.display = 'inline-flex';
-        setStatus('Opened without server. Use "Load Local Excel" to select Oracle.xlsx');
+        setStatus('Opened without server. Use "Load Local CSV" to select Oracle.csv');
       } else {
-        loadExcel().catch(err => {
+        loadCSV().catch(err => {
           console.error('Auto-load failed:', err);
-          setStatus(`Error loading Oracle.xlsx: ${err.message}`, true);
+          setStatus(`Error loading Oracle.csv: ${err.message}`, true);
           updateCounter(0);
         });
       }
