@@ -1,0 +1,746 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Requests – Operational Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    :root {
+      --brand: #6366f1; 
+      --accent: #ec4899; 
+      --success: #10b981; 
+      --warning: #f59e0b; 
+      --bg: #0f172a; 
+      --surface: rgba(30, 41, 59, 0.6); 
+      --text: #f1f5f9; 
+      --muted: #94a3b8; 
+      --border: #334155; 
+      --not-received: #ef4444; 
+      --store-order: #8b5cf6; 
+      --po-order: #0ea5e9; 
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Inter', system-ui, sans-serif;
+      overflow-x: hidden;
+    }
+
+    .glass {
+      background: var(--surface);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+    }
+
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 16px 24px;
+      background: linear-gradient(120deg, var(--brand), var(--accent));
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .logo-container { display: flex; align-items: center; gap: 16px; }
+    .logo { height: 48px; width: auto; }
+    .title { font-weight: 700; font-size: 1.5rem; letter-spacing: -0.5px; }
+
+    .container {
+      max-width: 1800px;
+      margin: 24px auto;
+      padding: 0 24px;
+      display: grid;
+      grid-template-columns: 1fr 350px;
+      gap: 24px;
+    }
+
+    .board-section { display: flex; flex-direction: column; gap: 24px; }
+
+    .command-bar { position: relative; display: flex; gap: 10px; }
+    .cmd-input {
+      flex: 1;
+      padding: 14px 20px 14px 48px;
+      background: rgba(15, 23, 42, 0.5);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      color: var(--text);
+      font-size: 1rem;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    .cmd-input:focus { border-color: var(--brand); box-shadow: 0 0 0 3px rgba(20, 24, 241, 0.2); }
+    .cmd-icon { position: absolute; left: 18px; top: 50%; transform: translateY(-50%); color: var(--muted); }
+    .cmd-shortcut { position: absolute; right: 18px; top: 50%; transform: translateY(-50%); background: rgba(255, 255, 255, 0.1); padding: 2px 8px; border-radius: 6px; font-size: 0.8rem; }
+
+    .filter-bar { display: flex; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+    .filter-btn {
+      flex: 1; padding: 12px; background: transparent; border: none; color: var(--muted);
+      font-weight: 600; cursor: pointer; transition: all 0.2s;
+    }
+    .filter-btn.active, .filter-btn:hover { background: var(--brand); color: white; }
+
+    .kanban-board { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 24px; overflow-x: auto; padding-bottom: 12px; }
+    .column { display: flex; flex-direction: column; min-width: 300px; }
+    .column-header {
+      padding: 16px; margin-bottom: 16px; border-radius: 12px 12px 0 0;
+      font-weight: 700; display: flex; justify-content: space-between; align-items: center;
+    }
+    .not-received .column-header { background: var(--not-received); color: white; }
+    .store-order .column-header { background: var(--store-order); color: white; }
+    .po-order .column-header { background: var(--po-order); color: white; }
+    .other-order .column-header { background: var(--warning); color: white; }
+
+    .card-count { background: rgba(0, 0, 0, 0.2); padding: 2px 8px; border-radius: 20px; font-size: 0.85rem; }
+
+    .card-list { display: flex; flex-direction: column; gap: 16px; flex: 1; }
+    .card {
+      padding: 16px; border-radius: 12px; transition: transform 0.2s, box-shadow 0.2s;
+      cursor: pointer; background: var(--surface); border: 1px solid var(--border);
+    }
+    .card:hover { transform: translateY(-2px); box-shadow: 0 10px 20px -10px rgba(0, 0, 0, 0.5); }
+    .card-header { display: flex; justify-content: space-between; margin-bottom: 12px; align-items: flex-start; }
+    .card-title { font-weight: 700; font-size: 1.1rem; }
+    .status-badge { padding: 4px 10px; border-radius: 20px; font-size: 0.8rem; font-weight: 600; color: white; }
+    .card-content { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; font-size: 0.9rem; }
+    .card-item { display: flex; flex-direction: column; }
+    .card-label { color: var(--muted); font-size: 0.8rem; margin-bottom: 4px; }
+    .card-value { font-weight: 600; }
+    .amount-value { color: var(--success); }
+
+    .summary-section { display: flex; flex-direction: column; gap: 24px; }
+    .summary-card { padding: 24px; }
+    .summary-title { font-size: 1.1rem; font-weight: 600; margin-bottom: 16px; text-align: center; }
+    .chart-container { height: 250px; position: relative; margin-bottom: 24px; }
+    .totals-list { display: flex; flex-direction: column; gap: 16px; }
+    .total-item { display: flex; justify-content: space-between; align-items: center; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+    .total-label { display: flex; flex-direction: column; }
+    .total-name { font-weight: 600; }
+    .total-desc { font-size: 0.85rem; color: var(--muted); }
+    .total-value { font-weight: 700; font-size: 1.1rem; }
+    .not-received-total { color: var(--not-received); }
+    .mat-not-received-total { color: var(--warning); }
+    .received-total { color: var(--success); }
+
+    .back-link { display: inline-flex; align-items: center; gap: 8px; color: var(--brand); text-decoration: none; font-weight: 600; margin-top: 12px; transition: opacity 0.2s; }
+    .back-link:hover { opacity: 0.8; }
+
+    .detail-panel {
+      position: fixed; top: 0; right: 0; height: 100vh; width: 100%; max-width: 800px;
+      background: var(--bg); z-index: 1000; transform: translateX(100%);
+      transition: transform 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+      box-shadow: -10px 0 50px rgba(0, 0, 0, 0.5); display: flex; flex-direction: column;
+    }
+    .detail-panel.open { transform: translateX(0); }
+    .panel-header { display: flex; justify-content: space-between; align-items: center; padding: 24px; border-bottom: 1px solid var(--border); }
+    .close-panel { background: none; border: none; color: var(--muted); font-size: 1.5rem; cursor: pointer; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; border-radius: 50%; transition: background 0.2s; }
+    .close-panel:hover { background: rgba(255, 255, 255, 0.1); }
+    .panel-body { padding: 24px; overflow-y: auto; flex: 1; }
+    .panel-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 24px; }
+    .summary-metric { background: var(--surface); padding: 16px; border-radius: 12px; text-align: center; border: 1px solid var(--border); }
+    .metric-value { font-size: 1.5rem; font-weight: 700; margin: 8px 0; }
+    .metric-label { color: var(--muted); font-size: 0.9rem; }
+    table { width: 100%; border-collapse: collapse; background: var(--surface); border-radius: 12px; overflow: hidden; }
+    th, td { padding: 12px 16px; text-align: left; border-bottom: 1px solid var(--border); }
+    th { background: rgba(99, 102, 241, 0.2); font-weight: 600; color: var(--brand); }
+    tr:last-child td { border-bottom: none; }
+
+    .loader { display: none; position: fixed; inset: 0; background: rgba(15, 23, 42, 0.8); align-items: center; justify-content: center; z-index: 999; }
+    .spinner { width: 32px; height: 32px; border: 4px solid var(--border); border-top-color: var(--brand); border-radius: 50%; animation: spin 1s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .status-bar { color: var(--muted); text-align: center; margin-top: 12px; font-size: 0.9rem; }
+
+    @media (max-width: 1200px) {
+      .container { grid-template-columns: 1fr; }
+      .summary-section { order: -1; }
+    }
+    @media (max-width: 768px) {
+      .topbar { padding: 16px; flex-direction: column; gap: 10px;}
+      .title { font-size: 1.25rem; }
+      .kanban-board { grid-template-columns: 1fr; }
+      .column { min-width: auto; }
+      .card-content { grid-template-columns: 1fr; }
+      .detail-panel { max-width: 100%; }
+      .panel-summary { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div id="loader" class="loader"><div class="spinner"></div></div>
+
+  <header class="topbar">
+    <div class="logo-container">
+      <img src="Logo.bmp" alt="GISCO" class="logo" />
+      <h1 class="title">Gulf Industrial Service Company</h1>
+    </div>
+    <div class="title" >PROJECT 4378M Costs Dashboard</div>
+  </header>
+
+  <main class="container">
+    
+    <div class="board-section">
+      <div class="command-bar">
+        <span class="cmd-icon">🔍</span>
+        <input type="text" id="cmdSearch" class="cmd-input" placeholder="Search requests..." />
+        <span class="cmd-shortcut">⌘K</span>
+        <input type="file" id="localFile" accept=".xlsx,.xls" style="display:none" />
+        <button id="btnLocal" class="filter-btn" style="display:none; flex: 0 0 120px;" onclick="document.getElementById('localFile').click()">Load Local</button>
+      </div>
+
+      <div class="filter-bar">
+        <button class="filter-btn active" data-filter="all">All</button>
+        <button class="filter-btn" data-filter="wo">Work Orders (WO)</button>
+        <button class="filter-btn" data-filter="m">Materials (M)</button>
+      </div>
+
+      <div class="kanban-board" id="kanbanBoard"></div>
+    </div>
+
+    <div class="summary-section" style="align-items: center;">
+      <div style="align-items: center; font-weight: bold;font-style: italic; text-shadow: #1302fd 1px 1px 2px;">::: تصميم و برمجة : مصطفي النجار :::</div>
+      <div class="glass summary-card">
+        <h2 class="summary-title">Financial Overview</h2>
+        <div class="chart-container">
+          <canvas id="summaryChart"></canvas>
+        </div>
+        <div class="totals-list">
+          <div class="total-item">
+            <div class="total-label"><span class="total-name">Total Expected Cost</span></div>
+            <span class="total-value" id="sumAmount">AED 0.00</span>
+          </div>
+          <div class="total-item">
+            <div class="total-label"><span class="total-name">Received Materials Cost</span></div>
+            <span class="total-value received-total" id="sumReceived">AED 0.00</span>
+          </div>
+          <div class="total-item">
+            <div class="total-label"><span class="total-name">Work Orders (WO)</span></div>
+            <span class="total-value" id="sumWO">AED 0.00</span>
+          </div>
+          <div class="total-item">
+            <div class="total-label"><span class="total-name">None Work Order Materials</span></div>
+            <span class="total-value" id="sumOther">AED 0.00</span>
+          </div>
+          <div class="total-item">
+            <div class="total-label"><span class="total-name">Store Materials</span></div>
+            <span class="total-value" id="sumStore">AED 0.00</span>
+          </div>
+          <div class="total-item">
+            <div class="total-label"><span class="total-name">L.P.O Materials</span></div>
+            <span class="total-value" id="sumPO">AED 0.00</span>
+          </div>
+          <div class="total-item">
+            <div class="total-label">
+              <span class="total-name">WO Not Received</span>
+              <span class="total-desc">Urgent Attention</span>
+            </div>
+            <span class="total-value not-received-total" id="sumNotReceived">AED 0.00</span>
+          </div>
+          <div class="total-item">
+            <div class="total-label">
+              <span class="total-name">Materials Not Received</span>
+              <span class="total-desc">Pending Delivery</span>
+            </div>
+            <span class="total-value mat-not-received-total" id="matNotReceived">AED 0.00</span>
+          </div>
+        </div>
+      </div>
+      <a class="back-link" href="index.html">⬅ Back to Main Page</a>
+      <div class="status-bar" id="statusBar">Loading...</div>
+    </div>
+  </main>
+
+  <div class="detail-panel" id="detailPanel">
+    <div class="panel-header">
+      <h2>Request Details: <span id="modalReqId"></span></h2>
+      <button class="close-panel">&times;</button>
+    </div>
+    <div class="panel-body">
+      <div class="panel-summary">
+        <div class="summary-metric">
+          <div class="metric-label">Total Quantity</div>
+          <div class="metric-value" id="modalTotalQty">0</div>
+        </div>
+        <div class="summary-metric">
+          <div class="metric-label">Total Cost</div>
+          <div class="metric-value" id="modalTotalCost">AED 0.00</div>
+        </div>
+        <div class="summary-metric">
+          <div class="metric-label">Line Items</div>
+          <div class="metric-value" id="modalResultCount">0</div>
+        </div>
+      </div>
+      <table id="modalTable">
+        <thead>
+          <tr>
+            <th>Oracle Code</th>
+            <th>Description</th>
+            <th>Category</th>
+            <th>Qty</th>
+            <th>Unit Price</th>
+            <th>Total</th>
+          </tr>
+        </thead>
+        <tbody id="modalTableBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    const excelPath = 'Requests.xlsx';
+    let ALL_ROWS = [];
+    let MATERIALS_ROWS = [];
+    let CURRENT_FILTER = 'all';
+
+    const COLUMNS = [
+      { id: 'not-received', title: 'Not Received', filter: (r) => !isReceived(r.receiptDate) },
+      { id: 'store-order', title: 'Store Materials', filter: (r) => isReceived(r.receiptDate) && String(r.order).length === 6 },
+      { id: 'po-order', title: 'L.P.O Materials', filter: (r) => isReceived(r.receiptDate) && String(r.order).length === 12 },
+     
+    ];
+
+    function isReceived(val) {
+      const s = String(val || '').trim().toLowerCase();
+      return s !== '' && s !== 'not received';
+    }
+
+    function formatAED(n){ return new Intl.NumberFormat('en-AE', { style: 'currency', currency: 'AED' }).format(Number(n || 0)); }
+    function showLoader(v){ const el = document.getElementById('loader'); if (el) el.style.display = v ? 'flex' : 'none'; }
+    function setStatus(msg, isError=false){ const el = document.getElementById('statusBar'); if(el) { el.textContent = msg || ''; el.style.color = isError ? '#ef4444' : 'var(--muted)'; } }
+
+    const FIELD_ALIASES = {
+      request: ['Requisition','req','reqno','req_no','req id','reqid','رقمالطلب','رقم الطلب'],
+      requestDate: ['creation_date'],
+      order: ['order','orderno','order_no','po','po no','po_no','Store Materials','storeorder','رقمالامر','رقم الامر'],
+      amount: ['amount','total','cost','المبلغ','value'],
+      receiptDate: ['RECEIPT DATE','rec date','receiptdate','تاريخ الاستلام','تاريخالاستلام'],
+      receiptOrder: ['Receipt','receiptno','receipt no','رقم امر الاستلام','رقمامرالاستلام'],
+      remark: ['remark','type','classification','ملاحظة','ملاحظه','rmk'],
+      notes: ['notes', 'note', 'ملاحظات', 'تعليق', 'comments']
+    };
+
+    function normalizeKey(k){ return String(k || '').toLowerCase().replace(/\s+|_/g,'').trim(); }
+    function pickField(obj, aliases){
+      const keys = Object.keys(obj);
+      const normToKey = new Map(keys.map(k => [normalizeKey(k), k]));
+      for (const alias of aliases){
+        const nk = normalizeKey(alias);
+        if (normToKey.has(nk)) return obj[normToKey.get(nk)];
+      }
+      return '';
+    }
+
+    function dateToExcelSerial(val){
+      if (val === null || val === undefined || val === '') return '';
+      if (typeof val === 'number' && isFinite(val)) return String(Math.floor(val));
+      if (Object.prototype.toString.call(val) === '[object Date]'){
+        const y = val.getUTCFullYear(); const m = val.getUTCMonth(); const d = val.getUTCDate();
+        const base = Date.UTC(1899, 11, 30); const utc = Date.UTC(y, m, d);
+        return String(Math.floor((utc - base) / 86400000));
+      }
+      const s = String(val).trim(); const n = Number(s);
+      if (!Number.isNaN(n) && isFinite(n)) return String(Math.floor(n));
+      const d1 = new Date(s);
+      if (!Number.isNaN(d1.getTime())){
+        const base = Date.UTC(1899, 11, 30);
+        const utc = Date.UTC(d1.getUTCFullYear(), d1.getUTCMonth(), d1.getUTCDate());
+        return String(Math.floor((utc - base) / 86400000));
+      }
+      const parts = s.match(/\d+/g);
+      if (parts && parts.length >= 3){
+        const [a,b,c] = parts.map(Number);
+        const candDMY = new Date(Date.UTC(c, (a-1), b));
+        const candMDY = new Date(Date.UTC(c, (b-1), a));
+        const use = (a > 12 && !Number.isNaN(candDMY.getTime())) ? candDMY : (!Number.isNaN(candMDY.getTime())) ? candMDY : (!Number.isNaN(candDMY.getTime())) ? candDMY : null;
+        if (use){
+          const base = Date.UTC(1899, 11, 30);
+          const utc = Date.UTC(use.getUTCFullYear(), use.getUTCMonth(), use.getUTCDate());
+          return String(Math.floor((utc - base) / 86400000));
+        }
+      }
+      return s.replace(/\D/g,'') || s;
+    }
+
+    function formatDate(val){
+      if (val === null || val === undefined || val === '') return '';
+      if (typeof val === 'number' && isFinite(val)){
+        const base = Date.UTC(1899, 11, 30); const ms = Math.round(val) * 86400000; const d = new Date(base + ms);
+        return !Number.isNaN(d.getTime()) ? d.toISOString().slice(0,10) : String(val);
+      }
+      if (Object.prototype.toString.call(val) === '[object Date]') return val.toISOString().slice(0,10);
+      const s = String(val).trim(); const d1 = new Date(s);
+      return !Number.isNaN(d1.getTime()) ? d1.toISOString().slice(0,10) : s;
+    }
+
+    function formatDateDMY(val){
+      if (val === null || val === undefined || val === '') return '';
+      const pad2 = (n) => String(n).padStart(2,'0');
+      const toDMY = (d) => `${pad2(d.getUTCDate())}/${pad2(d.getUTCMonth()+1)}/${d.getUTCFullYear()}`;
+      if (typeof val === 'number' && isFinite(val)){
+        const base = Date.UTC(1899, 11, 30); const d = new Date(base + Math.round(val) * 86400000);
+        return !Number.isNaN(d.getTime()) ? toDMY(d) : String(val);
+      }
+      if (Object.prototype.toString.call(val) === '[object Date]') return toDMY(val);
+      const s = String(val).trim(); const d1 = new Date(s);
+      if (!Number.isNaN(d1.getTime())) return toDMY(d1);
+      const parts = s.match(/\d+/g);
+      if (parts && parts.length >= 3){
+        const [a,b,c] = parts.map(Number);
+        const candDMY = new Date(Date.UTC(c, (b-1), a));
+        const candMDY = new Date(Date.UTC(c, (a-1), b));
+        const use = (a > 12 && !Number.isNaN(candDMY.getTime())) ? candDMY : (!Number.isNaN(candMDY.getTime())) ? candMDY : (!Number.isNaN(candDMY.getTime())) ? candDMY : null;
+        if (use) return toDMY(use);
+      }
+      return s;
+    }
+
+    function escapeHtml(s){ return String(s).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#39;'); }
+
+    function buildRow(item){
+      const request = String(pickField(item, FIELD_ALIASES.request) || '').trim();
+      const requestDate = pickField(item, FIELD_ALIASES.requestDate);
+      const order = String(pickField(item, FIELD_ALIASES.order) || '').trim();
+      const amountRaw = pickField(item, FIELD_ALIASES.amount);
+      const amount = Number(amountRaw || 0);
+      const receiptDate = pickField(item, FIELD_ALIASES.receiptDate);
+      const receiptOrder = String(pickField(item, FIELD_ALIASES.receiptOrder) || '').trim();
+      const remark = String(pickField(item, FIELD_ALIASES.remark) || '').trim();
+      const notes = String(pickField(item, FIELD_ALIASES.notes) || '').trim();
+      
+      const searchIndex = [request, dateToExcelSerial(requestDate), formatDateDMY(requestDate), order, amount, formatDate(receiptDate), receiptOrder, remark, notes].map(s => String(s).toLowerCase()).join(' | ');
+
+      return { request, requestDate, order, amount, receiptDate, receiptOrder, remark, notes, searchIndex };
+    }
+
+    async function loadMaterialsExcel() {
+      try {
+        setStatus('Loading Materials.xlsx…');
+        const res = await fetch('Materials.xlsx?ts=' + Date.now());
+        if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+        const buf = await res.arrayBuffer();
+        const wb = XLSX.read(buf, { type: 'array' });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const json = XLSX.utils.sheet_to_json(ws, { defval: '' });
+
+        const MATERIAL_FIELD_ALIASES = {
+          request: ['Requisition','REQUEST','reqno','req_no','req id','reqid','رقمالطلب','رقم الطلب'],
+          oracleCode: ['ORACLE CODE', 'ORACLE CODE', 'كود اوراكل', 'Item Code'],
+          description: ['ITEM DESCRIPTION', 'وصف', 'الوصف', 'Description'],
+          category: ['ITEM CATEGORY', 'الفئة', 'type', 'Category'],
+          quantity: ['quantity', 'QTY', 'الكمية', 'Qty'],
+          unitPrice: ['unit price', 'PRICE', 'سعر الوحدة', 'Unit Price'],
+          projectNo: ['project no', 'JOB NO', 'رقم المشروع', 'Job No'],
+          status: ['status', 'الحالة', 'STATUE', 'Status'],
+          order: ['ORDER','orderno','order_no','po','po no','po_no','Store Materials','storeorder','رقمالامر','رقم الامر']
+        };
+
+        MATERIALS_ROWS = json.map(item => {
+          const qty = Number(pickField(item, MATERIAL_FIELD_ALIASES.quantity) || 0);
+          const price = Number(pickField(item, MATERIAL_FIELD_ALIASES.unitPrice) || 0);
+          return {
+            request: String(pickField(item, MATERIAL_FIELD_ALIASES.request) || '').trim(),
+            oracleCode: String(pickField(item, MATERIAL_FIELD_ALIASES.oracleCode) || '').trim(),
+            description: String(pickField(item, MATERIAL_FIELD_ALIASES.description) || '').trim(),
+            category: String(pickField(item, MATERIAL_FIELD_ALIASES.category) || '').trim(),
+            quantity: qty, unitPrice: price,
+            projectNo: String(pickField(item, MATERIAL_FIELD_ALIASES.projectNo) || '').trim(),
+            status: String(pickField(item, MATERIAL_FIELD_ALIASES.status) || '').trim(),
+            order: String(pickField(item, MATERIAL_FIELD_ALIASES.order) || '').trim(),
+            totalAmount: qty * price
+          };
+        });
+        setStatus(`Loaded ${MATERIALS_ROWS.length} material rows`);
+      } catch (e) {
+        console.error('Failed to load Materials.xlsx:', e);
+        setStatus('Warning: Materials.xlsx not found. Details may be empty.', true);
+        MATERIALS_ROWS = [];
+      }
+    }
+
+    async function loadExcel(){
+      try {
+        showLoader(true);
+        setStatus('Loading Requests.xlsx…');
+        const res = await fetch(excelPath + '?ts=' + Date.now());
+        if (!res.ok) throw new Error(`Fetch failed: ${res.status} ${res.statusText}`);
+        const buf = await res.arrayBuffer();
+        const wb = XLSX.read(buf, { type: 'array' });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const json = XLSX.utils.sheet_to_json(ws, { defval: '' });
+        ALL_ROWS = json.map(buildRow);
+       
+        renderKanbanBoard(ALL_ROWS);
+        setStatus(`Loaded ${ALL_ROWS.length} rows from Requests.xlsx`);
+        await loadMaterialsExcel(); 
+      } catch (e) {
+        console.error(e);
+        setStatus('Auto-load failed. Make sure Requests.xlsx is available.', true);
+      } finally {
+        showLoader(false);
+      }
+    }
+
+    async function loadLocalFile(evt){
+      const input = evt.target;
+      const file = input.files && input.files[0];
+      if (!file) return;
+      const name = String(file.name || '').toLowerCase();
+      if (name !== 'requests.xlsx'){
+        setStatus('Please select the file named "Requests.xlsx" only.', true);
+        input.value = '';
+        return;
+      }
+      try {
+        showLoader(true);
+        setStatus('Loading local Requests.xlsx…');
+        const buf = await file.arrayBuffer();
+        const wb = XLSX.read(buf, { type: 'array' });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const json = XLSX.utils.sheet_to_json(ws, { defval: '' });
+        ALL_ROWS = json.map(buildRow);
+        
+        renderKanbanBoard(ALL_ROWS);
+        setStatus(`Loaded ${ALL_ROWS.length} rows from local file`);
+      } catch (e) {
+        console.error(e);
+        setStatus('Local load failed. Ensure the file is a valid .xlsx', true);
+      } finally {
+        showLoader(false);
+      }
+    }
+
+    function renderKanbanBoard(rows) {
+      const board = document.getElementById('kanbanBoard');
+      board.innerHTML = '';
+
+      // Apply tab filter first
+      let filteredRows = rows;
+      if (CURRENT_FILTER === 'wo') {
+        filteredRows = rows.filter(r => String(r.remark || '').trim().toLowerCase() === 'wo');
+      } else if (CURRENT_FILTER === 'm') {
+        filteredRows = rows.filter(r => String(r.remark || '').trim().toLowerCase() === 'm');
+      }
+
+      COLUMNS.forEach(colConfig => {
+        let columnRows = filteredRows.filter(colConfig.filter);
+
+        const columnEl = document.createElement('div');
+        columnEl.className = `column ${colConfig.id}`;
+        columnEl.innerHTML = `
+          <div class="column-header">
+            <span>${colConfig.title}</span>
+            <span class="card-count">${columnRows.length}</span>
+          </div>
+          <div class="card-list" id="list-${colConfig.id}"></div>
+        `;
+        board.appendChild(columnEl);
+
+        const listEl = columnEl.querySelector('.card-list');
+        columnRows.forEach(row => {
+          const card = document.createElement('div');
+          card.className = 'card';
+          card.dataset.request = row.request;
+          
+          let statusText = 'Received';
+          let statusColor = 'var(--success)';
+          if (!isReceived(row.receiptDate)) {
+            statusText = 'Not Received';
+            statusColor = 'var(--not-received)';
+          } else if (String(row.order).length === 6) {
+            statusText = 'Store Materials';
+            statusColor = 'var(--store-order)';
+          } else if (String(row.order).length === 12) {
+            statusText = 'Purchase Order';
+            statusColor = 'var(--po-order)';
+          } else {
+            statusText = 'Other';
+            statusColor = 'var(--warning)';
+          }
+
+          card.innerHTML = `
+            <div class="card-header">
+              <div class="card-title">#${escapeHtml(row.request)}</div>
+              <span class="status-badge" style="background: ${statusColor};">${statusText}</span>
+            </div>
+            <div class="card-content">
+              <div class="card-item">
+                <span class="card-label">Date</span>
+                <span class="card-value">${escapeHtml(formatDateDMY(row.requestDate))}</span>
+              </div>
+              <div class="card-item">
+                <span class="card-label">Order #</span>
+                <span class="card-value">${escapeHtml(row.order)}</span>
+              </div>
+              <div class="card-item">
+                <span class="card-label">Amount</span>
+                <span class="card-value amount-value">${formatAED(row.amount)}</span>
+              </div>
+              <div class="card-item">
+                <span class="card-label">Receipt Date</span>
+                <span class="card-value">${escapeHtml(formatDateDMY(row.receiptDate))}</span>
+              </div>
+              <div class="card-item">
+                <span class="card-label">Notes</span>
+                <span class="card-value">${escapeHtml(row.notes)}</span>
+              </div>
+              <div class="card-item">
+                <span class="card-label">Type</span>
+                <span class="card-value">${escapeHtml(row.remark)}</span>
+              </div>
+            </div>
+          `;
+          card.addEventListener('click', () => openDetails(row.request));
+          listEl.appendChild(card);
+        });
+      });
+
+      // Pass the filtered rows to update the summary responsively
+      updateSummary(filteredRows);
+    }
+
+    function updateSummary(rows) {
+      let total = 0, woTotal = 0, otherTotal = 0;
+      let storeTotal = 0, poTotal = 0;
+      let woNotReceived = 0, matNotReceived = 0;
+      let receivedTotal = 0; // 👈 New Variable
+
+      for (const r of rows) {
+        const amount = Number(r.amount) || 0;
+        total += amount;
+        
+        const remark = String(r.remark || '').trim().toLowerCase();
+        const orderLen = String(r.order || '').length;
+        const received = isReceived(r.receiptDate);
+
+        // Calculate Received Total
+        if (received) {
+          receivedTotal += amount;
+        }
+
+        if (remark === 'wo') {
+          woTotal += amount;
+          if (!received) woNotReceived += amount;
+        } else {
+          otherTotal += amount;
+          if (!received) matNotReceived += amount;
+        }
+
+        if (orderLen === 6) {
+          storeTotal += amount;
+        } else if (orderLen === 12) {
+          poTotal += amount;
+        }
+      }
+
+      document.getElementById('sumAmount').textContent = formatAED(total);
+      document.getElementById('sumReceived').textContent = formatAED(receivedTotal); // 👈 Update UI
+      document.getElementById('sumWO').textContent = formatAED(woTotal);
+      document.getElementById('sumOther').textContent = formatAED(otherTotal);
+      document.getElementById('sumStore').textContent = formatAED(storeTotal);
+      document.getElementById('sumPO').textContent = formatAED(poTotal);
+      document.getElementById('sumNotReceived').textContent = formatAED(woNotReceived);
+      document.getElementById('matNotReceived').textContent = formatAED(matNotReceived);
+
+      const ctx = document.getElementById('summaryChart').getContext('2d');
+      if (window.summaryChartInstance) window.summaryChartInstance.destroy();
+      window.summaryChartInstance = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+          labels: ['Work Orders', 'None Work Order Materials'],
+          datasets: [{
+            data: [woTotal, otherTotal],
+            backgroundColor: ['#6366f1', '#ec4899'],
+            borderWidth: 0
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { position: 'bottom', labels: { color: '#f1f5f9', padding: 20 } }
+          },
+          cutout: '70%'
+        }
+      });
+    }
+
+    function openDetails(reqId) {
+      const detailsRows = MATERIALS_ROWS.filter(r => String(r.request || '').trim() === String(reqId).trim());
+      let totalQty = 0, totalCost = 0;
+      detailsRows.forEach(r => { totalQty += r.quantity || 0; totalCost += r.totalAmount || 0; });
+
+      document.getElementById('modalReqId').textContent = reqId;
+      document.getElementById('modalTotalQty').textContent = totalQty;
+      document.getElementById('modalTotalCost').textContent = formatAED(totalCost);
+      document.getElementById('modalResultCount').textContent = detailsRows.length;
+
+      const tbody = document.getElementById('modalTableBody');
+      tbody.innerHTML = '';
+      detailsRows.forEach(r => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${escapeHtml(r.oracleCode || '')}</td>
+          <td>${escapeHtml(r.description || '')}</td>
+          <td>${escapeHtml(r.category || '')}</td>
+          <td>${escapeHtml(r.quantity || '')}</td>
+          <td>${formatAED(r.unitPrice || 0)}</td>
+          <td>${formatAED(r.totalAmount || 0)}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+
+      document.getElementById('detailPanel').classList.add('open');
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      document.querySelector('.close-panel').addEventListener('click', () => {
+        document.getElementById('detailPanel').classList.remove('open');
+      });
+
+      document.querySelectorAll('.filter-btn[data-filter]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          document.querySelectorAll('.filter-btn[data-filter]').forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+          CURRENT_FILTER = btn.dataset.filter;
+          renderKanbanBoard(ALL_ROWS);
+        });
+      });
+
+      document.getElementById('cmdSearch').addEventListener('input', (e) => {
+        const query = e.target.value.toLowerCase();
+        if(!query) {
+          renderKanbanBoard(ALL_ROWS);
+          return;
+        }
+        const filtered = ALL_ROWS.filter(r => r.searchIndex.includes(query));
+        renderKanbanBoard(filtered);
+      });
+
+      document.addEventListener('keydown', (e) => {
+        if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+          e.preventDefault();
+          document.getElementById('cmdSearch').focus();
+        }
+      });
+
+      const lf = document.getElementById('localFile');
+      if (lf) lf.addEventListener('change', loadLocalFile);
+
+      if (location.protocol === 'file:'){
+        const btn = document.getElementById('btnLocal');
+        if (btn) btn.style.display = 'inline-flex';
+        setStatus('Opened without server. Use "Load Local" to select Requests.xlsx');
+      } else {
+        loadExcel();
+      }
+    });
+  </script>
+</body>
+</html>
